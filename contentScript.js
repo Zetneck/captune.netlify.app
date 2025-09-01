@@ -1,4 +1,11 @@
 // contentScript.js
+// Prevenir ejecución múltiple del content script
+if (window._subtitleTranslatorLoaded) {
+  console.log('Content script ya está cargado, evitando duplicación');
+  return;
+}
+window._subtitleTranslatorLoaded = true;
+
 // --- languageCodeToName helper ---
 if (!window._stLanguages) {
   window._stLanguages = {
@@ -42,7 +49,11 @@ function setOverlayVisible(v) {
   overlayEl?.classList.toggle('hidden', !v);
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'PING') {
+    sendResponse({ ok: true }); // Confirma que el content script está activo
+    return true;
+  }
   if (msg.type === 'OVERLAY_TOGGLE') setOverlayVisible(!!msg.enabled);
   if (msg.type === 'OVERLAY_NOTICE') showMeta(msg.message);
   if (msg.type === 'SUBTITLE_TEXT') renderLine(msg.text, msg.langDetected);
@@ -54,7 +65,10 @@ function showMeta(text) {
   if (!meta) return;
   meta.textContent = text || '';
   meta.classList.add('show');
-  setTimeout(() => meta.classList.remove('show'), 3000);
+  // Limpia el timeout anterior si existe
+  if (window._metaTimeout) clearTimeout(window._metaTimeout);
+  // Los mensajes de estado se mantienen más tiempo visibles
+  window._metaTimeout = setTimeout(() => meta.classList.remove('show'), 5000);
 }
 
 async function hookPlatforms() {

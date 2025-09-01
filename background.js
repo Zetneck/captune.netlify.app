@@ -54,23 +54,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       // Inyecta el content script solo si no está activo
-      let injected = false;
+      let needsInjection = true;
       try {
-        await chrome.tabs.sendMessage(tabId, { type: 'PING' }, () => {
-          if (chrome.runtime.lastError) {
-            // No hay receptor, inyecta el script
-            chrome.scripting.executeScript({
-              target: { tabId },
-              files: ['contentScript.js']
-            });
-            injected = true;
-          }
-        });
+        await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+        needsInjection = false; // Si no hay error, el script ya está inyectado
       } catch (e) {
-        console.warn('No se pudo verificar/inyectar contentScript.js:', e);
+        // Error esperado si el content script no está inyectado
+        console.log('Content script no encontrado, inyectando...');
       }
-      // Espera un poco si se inyectó
-      if (injected) await new Promise(res => setTimeout(res, 300));
+      
+      if (needsInjection) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['contentScript.js']
+          });
+          // Espera un momento para que se inicialice
+          await new Promise(res => setTimeout(res, 500));
+          console.log('Content script inyectado exitosamente');
+        } catch (injectError) {
+          console.error('Error inyectando content script:', injectError);
+          return sendResponse({ ok: false, error: 'INJECT_FAILED' });
+        }
+      }
       try {
         await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: true });
         await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium activado. Esperando audio...' });
