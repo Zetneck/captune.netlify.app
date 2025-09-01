@@ -14,14 +14,33 @@ async function startAsr(tabId) {
     chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Verificando configuración...' });
     
     const cfg = await chrome.storage.sync.get(['asrProvider','deepgramKey']);
-    console.log('Configuración ASR:', { provider: cfg.asrProvider, hasKey: !!cfg.deepgramKey });
+    console.log('Configuración ASR obtenida:', { 
+      provider: cfg.asrProvider, 
+      hasKey: !!cfg.deepgramKey,
+      keyLength: cfg.deepgramKey?.length || 0 
+    });
     
-    if (cfg.asrProvider !== 'deepgram' || !cfg.deepgramKey) {
-      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: Configura Deepgram en Opciones.' });
-      throw new Error('Configura Deepgram en Options.');
+    if (!cfg.asrProvider) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: No hay proveedor ASR configurado. Ve a Opciones.' });
+      throw new Error('No ASR provider configured');
+    }
+    
+    if (cfg.asrProvider !== 'deepgram') {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Error: Proveedor ${cfg.asrProvider} no soportado aún.` });
+      throw new Error(`Unsupported ASR provider: ${cfg.asrProvider}`);
+    }
+    
+    if (!cfg.deepgramKey || cfg.deepgramKey.trim().length === 0) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: API Key de Deepgram no configurada. Ve a Opciones.' });
+      throw new Error('Deepgram API key not configured');
+    }
+    
+    if (cfg.deepgramKey.length < 10) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: API Key de Deepgram parece inválida. Ve a Opciones.' });
+      throw new Error('Deepgram API key too short');
     }
 
-    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Solicitando captura de audio...' });
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Configuración OK. Solicitando captura de audio...' });
     console.log('Solicitando captura de audio para tabId:', tabId);
     
     // 1) Captura audio de la pestaña activa
