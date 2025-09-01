@@ -4,7 +4,10 @@ exports.handler = async function(event, context) {
   const valid = key && key.length >= 8;
   return {
     statusCode: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    },
     body: JSON.stringify({ valid })
   };
 };
