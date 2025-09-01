@@ -24,7 +24,7 @@
     "https://*.twitch.tv/*",
     "https://*.kick.com/*",
     "https://libretranslate.com/*",
-    "https://your-worker.example/*",
+    "https://api.deepgram.com/*",
     "wss://api.deepgram.com/*"
   ],
   "content_scripts": [
