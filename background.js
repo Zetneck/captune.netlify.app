@@ -43,29 +43,36 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'INIT_STATE_REQUEST') {
-      const settings = await chrome.storage.sync.get({
-        targetLang: 'es',
-        mode: 'auto', // 'auto' (use site captions) | 'asr' (premium)
-        premiumEnabled: false
-      });
-      STATE.translator ||= new Translator();
-      sendResponse({ ok: true, settings });
-    }
-
-    if (msg.type === 'SET_ENABLED') {
-      const { tabId, enabled, mode } = msg;
-      STATE.enabledByTab.set(tabId, { enabled, mode });
-      if (!enabled) {
-        try {
-          await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: false });
-          await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium desactivado.' });
-        } catch (e) {
-          console.warn('No se pudo enviar OVERLAY_TOGGLE (desactivar):', e);
-        }
-        chrome.runtime.sendMessage({ type: 'ASR_STOP', tabId });
-        return sendResponse({ ok: true });
+    try {
+      if (msg.type === 'INIT_STATE_REQUEST') {
+        const settings = await chrome.storage.sync.get({
+          targetLang: 'es',
+          mode: 'auto', // 'auto' (use site captions) | 'asr' (premium)
+          premiumEnabled: false
+        });
+        STATE.translator ||= new Translator();
+        sendResponse({ ok: true, settings });
+        return;
       }
+
+      if (msg.type === 'SET_ENABLED') {
+        const { tabId, enabled, mode } = msg;
+        STATE.enabledByTab.set(tabId, { enabled, mode });
+        if (!enabled) {
+          try {
+            await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: false });
+            await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium desactivado.' });
+          } catch (e) {
+            console.warn('No se pudo enviar OVERLAY_TOGGLE (desactivar):', e);
+          }
+          try {
+            chrome.runtime.sendMessage({ type: 'ASR_STOP', tabId });
+          } catch (e) {
+            console.warn('No se pudo enviar ASR_STOP:', e);
+          }
+          sendResponse({ ok: true });
+          return;
+        }
 
       // Inyecta el content script solo si no está activo
       let needsInjection = true;
@@ -142,6 +149,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.error('Translation error', e);
         sendResponse({ ok: false, error: e?.message || 'Translation failed' });
       }
+    }
+    } catch (error) {
+      console.error('Error in message handler:', error);
+      sendResponse({ ok: false, error: error.message });
     }
   })();
   return true; // keep port alive for async
