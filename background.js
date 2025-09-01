@@ -43,19 +43,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { tabId, enabled, mode } = msg;
       STATE.enabledByTab.set(tabId, { enabled, mode });
       if (!enabled) {
-        chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: false });
+        try {
+          await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: false });
+          await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium desactivado.' });
+        } catch (e) {
+          console.warn('No se pudo enviar OVERLAY_TOGGLE (desactivar):', e);
+        }
         chrome.runtime.sendMessage({ type: 'ASR_STOP', tabId });
         return sendResponse({ ok: true });
       }
 
-      chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: true });
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['contentScript.js']
+        });
+      } catch (e) {
+        console.warn('No se pudo inyectar contentScript.js:', e);
+      }
+      try {
+        await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: true });
+        await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium activado. Esperando audio...' });
+      } catch (e) {
+        console.warn('No se pudo enviar OVERLAY_TOGGLE (activar):', e);
+      }
 
       if (mode === 'asr') {
         await ensureOffscreen();
         const licenseOk = await verifyLicense();
         if (!licenseOk) {
-          chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_NOTICE',
-            message: 'ASR Premium requiere licencia activa. Ve a Options.' });
+          try {
+            await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_NOTICE',
+              message: 'ASR Premium requiere licencia activa. Ve a Options.' });
+            await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'Licencia inválida o no activa.' });
+          } catch (e) {
+            console.warn('No se pudo enviar OVERLAY_NOTICE:', e);
+          }
           return sendResponse({ ok: false, error: 'NO_LICENSE' });
         }
         chrome.runtime.sendMessage({ type: 'ASR_START', tabId });
@@ -79,15 +102,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function verifyLicense() {
-  if (STATE.licenseInfo?.validUntil && Date.now() < STATE.licenseInfo.validUntil) return STATE.licenseInfo.valid;
+  // Siempre recarga la licencia al activar ASR (no usa caché)
   const { licenseKey } = await chrome.storage.sync.get({ licenseKey: '' });
-  if (!licenseKey) return false;
+  if (!licenseKey || licenseKey.length < 8) return false;
   try {
-    const res = await fetch('https://your-worker.example/license/verify?key=' + encodeURIComponent(licenseKey));
+    const res = await fetch('https://captune.netlify.app/.netlify/functions/license-verify?key=' + encodeURIComponent(licenseKey));
     const json = await res.json();
     STATE.licenseInfo = { valid: !!json.valid, validUntil: Date.now() + 10 * 60 * 1000 };
-    return json.valid;
-  } catch {
+    return !!json.valid;
+  } catch (e) {
+    console.error('Error validando licencia:', e);
     return false;
   }
 }

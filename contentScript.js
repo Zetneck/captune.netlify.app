@@ -43,6 +43,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'OVERLAY_TOGGLE') setOverlayVisible(!!msg.enabled);
   if (msg.type === 'OVERLAY_NOTICE') showMeta(msg.message);
   if (msg.type === 'SUBTITLE_TEXT') renderLine(msg.text, msg.langDetected);
+  if (msg.type === 'ASR_STATUS') showMeta(msg.status);
 });
 
 function showMeta(text) {

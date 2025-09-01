@@ -11,11 +11,17 @@ chrome.runtime.onMessage.addListener((msg) => {
 async function startAsr(tabId) {
   try {
     const cfg = await chrome.storage.sync.get(['asrProvider','deepgramKey']);
-    if (cfg.asrProvider !== 'deepgram' || !cfg.deepgramKey) throw new Error('Configura Deepgram en Options.');
+    if (cfg.asrProvider !== 'deepgram' || !cfg.deepgramKey) {
+      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: Configura Deepgram en Opciones.' });
+      throw new Error('Configura Deepgram en Options.');
+    }
 
     // 1) Captura audio de la pestaña activa
     mediaStream = await chrome.tabCapture.capture({ audio: true, video: false });
-    if (!mediaStream) throw new Error('No se pudo capturar audio de la pestaña.');
+    if (!mediaStream) {
+      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: No se pudo capturar audio de la pestaña.' });
+      throw new Error('No se pudo capturar audio de la pestaña.');
+    }
 
     audioCtx = new AudioContext({ sampleRate: 48000 });
     sourceNode = audioCtx.createMediaStreamSource(mediaStream);
@@ -28,8 +34,14 @@ async function startAsr(tabId) {
     // 2) Conecta WS ASR
     ws = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language=auto');
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => console.log('WS Deepgram conectado');
-    ws.onerror = (e) => console.error('WS error', e);
+    ws.onopen = () => {
+      console.log('WS Deepgram conectado');
+      ws.send(JSON.stringify({ type: 'configure', access_token: cfg.deepgramKey }));
+    };
+    ws.onerror = (e) => {
+      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: No se pudo conectar a Deepgram.' });
+      console.error('WS error', e);
+    };
     ws.onclose = () => console.log('WS cerrado');
 
     ws.onmessage = (event) => {
@@ -41,7 +53,9 @@ async function startAsr(tabId) {
           // Envía texto al background para traducir y reenviar al content
           chrome.runtime.sendMessage({ type: 'ASR_TEXT', text });
         }
-      } catch {}
+      } catch (err) {
+        chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: Respuesta inválida de Deepgram.' });
+      }
     };
 
     // 3) Downsample a 16k y envía al WS
@@ -59,11 +73,6 @@ async function startAsr(tabId) {
       }
       if (ws?.readyState === 1) ws.send(out.buffer);
     };
-
-    // Autorización Deepgram
-    ws.addEventListener('open', () => {
-      ws.send(JSON.stringify({ type: 'configure', access_token: cfg.deepgramKey }));
-    }, { once: true });
 
   } catch (e) {
     chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: ' + e.message });
