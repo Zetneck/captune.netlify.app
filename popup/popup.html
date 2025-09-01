@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>Subtítulos con Traducción</title>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🎧 Subtítulos</h1>
+    <label class="switch">
+      <input id="toggle" type="checkbox" />
+      <span>Encender</span>
+    </label>
+
+    <label>Modo
+      <select id="mode">
+        <option value="auto">Auto (usar subtítulos del sitio si existen)</option>
+        <option value="asr">ASR (Premium: audio en vivo)</option>
+      </select>
+    </label>
+
+    <label>Idioma destino
+      <select id="targetLang"></select>
+    </label>
+
+    <div class="hint">YouTube funciona en modo Auto; Twitch/Kick requieren ASR Premium si no hay subtítulos.</div>
+
+    <div class="links">
+      <a href="#" id="openOptions">⚙️ Opciones</a>
+    </div>
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

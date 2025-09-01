@@ -1,0 +1,9 @@
+body { margin: 0; background: #0f1216; color: #eaeef5; font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+main { max-width: 720px; margin: 40px auto; padding: 0 20px; }
+h1 { font-size: 24px; margin-bottom: 20px; }
+h2 { margin: 20px 0 8px; font-size: 16px; color: #b9c3d1; }
+label { display: block; margin: 10px 0; font-size: 14px; }
+input, select { width: 100%; background: #161b22; border: 1px solid #232a34; color: #eaeef5; padding: 10px; border-radius: 10px; }
+button { background: #1e2630; border: 1px solid #2a3544; color: #eaeef5; padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+button:hover { background: #232c39; }
+#licenseStatus { margin-top: 8px; color: #89b4ff; font-size: 13px; }

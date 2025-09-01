@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="options.css" />
+  <title>Opciones — Subtítulos</title>
+</head>
+<body>
+  <main>
+    <h1>⚙️ Opciones</h1>
+    <section>
+      <h2>Licencia / Premium</h2>
+      <label>License Key <input id="licenseKey" type="text" placeholder="XXXX-XXXX-XXXX" /></label>
+      <button id="saveLicense">Guardar</button>
+      <div id="licenseStatus"></div>
+    </section>
+
+    <section>
+      <h2>ASR (Premium)</h2>
+      <label>Proveedor ASR
+        <select id="asrProvider">
+          <option value="deepgram">Deepgram (WS tiempo real)</option>
+        </select>
+      </label>
+      <label>Deepgram API Key <input id="deepgramKey" type="text" placeholder="dg_xxx..." /></label>
+    </section>
+
+    <section>
+      <h2>Traducción</h2>
+      <label>Proveedor Traducción
+        <select id="trProvider">
+          <option value="libretranslate">LibreTranslate (demo)</option>
+        </select>
+      </label>
+      <label>Endpoint LibreTranslate <input id="ltEndpoint" type="text" placeholder="https://libretranslate.com/translate" /></label>
+      <label>API Key (opcional) <input id="ltKey" type="text" /></label>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>
