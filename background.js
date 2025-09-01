@@ -53,14 +53,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return sendResponse({ ok: true });
       }
 
+      // Inyecta el content script solo si no está activo
+      let injected = false;
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['contentScript.js']
+        await chrome.tabs.sendMessage(tabId, { type: 'PING' }, () => {
+          if (chrome.runtime.lastError) {
+            // No hay receptor, inyecta el script
+            chrome.scripting.executeScript({
+              target: { tabId },
+              files: ['contentScript.js']
+            });
+            injected = true;
+          }
         });
       } catch (e) {
-        console.warn('No se pudo inyectar contentScript.js:', e);
+        console.warn('No se pudo verificar/inyectar contentScript.js:', e);
       }
+      // Espera un poco si se inyectó
+      if (injected) await new Promise(res => setTimeout(res, 300));
       try {
         await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_TOGGLE', enabled: true });
         await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'ASR Premium activado. Esperando audio...' });
@@ -119,10 +129,38 @@ async function verifyLicense() {
 chrome.runtime.onMessage.addListener((msg, sender) => {
   (async () => {
     if (msg.type === 'ASR_TEXT') {
-      const { targetLang } = await chrome.storage.sync.get({ targetLang: 'es' });
-      const translated = await STATE.translator.translate(msg.text, targetLang);
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'SUBTITLE_TEXT', text: translated, langDetected: 'auto' });
+      try {
+        console.log('Procesando texto ASR:', msg.text);
+        STATE.translator ||= new Translator();
+        const { targetLang } = await chrome.storage.sync.get({ targetLang: 'es' });
+        const translated = await STATE.translator.translate(msg.text, targetLang);
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          await chrome.tabs.sendMessage(tab.id, { 
+            type: 'SUBTITLE_TEXT', 
+            text: translated, 
+            langDetected: 'auto' 
+          });
+          console.log('Texto traducido enviado al content script:', translated);
+        }
+      } catch (e) {
+        console.error('Error procesando ASR_TEXT:', e);
+      }
+    }
+    
+    if (msg.type === 'ASR_STATUS') {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          await chrome.tabs.sendMessage(tab.id, { 
+            type: 'ASR_STATUS', 
+            status: msg.status 
+          });
+        }
+      } catch (e) {
+        console.error('Error enviando ASR_STATUS:', e);
+      }
     }
   })();
   return true;

@@ -32,47 +32,79 @@ async function startAsr(tabId) {
     processor.connect(audioCtx.destination);
 
     // 2) Conecta WS ASR
-    ws = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language=auto');
+    const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language=auto`;
+    ws = new WebSocket(wsUrl, ['token', cfg.deepgramKey]);
     ws.binaryType = 'arraybuffer';
+    
     ws.onopen = () => {
-      console.log('WS Deepgram conectado');
-      ws.send(JSON.stringify({ type: 'configure', access_token: cfg.deepgramKey }));
+      console.log('WS Deepgram conectado exitosamente');
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Conectado a Deepgram. Escuchando audio...' });
     };
+    
     ws.onerror = (e) => {
-      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: No se pudo conectar a Deepgram.' });
-      console.error('WS error', e);
+      console.error('WS Deepgram error:', e);
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: No se pudo conectar a Deepgram. Verifica tu API key.' });
     };
-    ws.onclose = () => console.log('WS cerrado');
+    
+    ws.onclose = (e) => {
+      console.log('WS Deepgram cerrado:', e.code, e.reason);
+      if (e.code !== 1000) {
+        chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Conexión cerrada: ${e.reason || 'Error desconocido'}` });
+      }
+    };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log('Deepgram response:', data);
+        
+        if (data.error) {
+          chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Error Deepgram: ${data.error}` });
+          return;
+        }
+        
         const alt = data.channel?.alternatives?.[0];
         const text = alt?.transcript?.trim();
-        if (text && data.is_final) {
-          // Envía texto al background para traducir y reenviar al content
-          chrome.runtime.sendMessage({ type: 'ASR_TEXT', text });
+        
+        if (text) {
+          console.log('Transcripción recibida:', text, 'Final:', data.is_final);
+          chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Transcribiendo: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"` });
+          
+          if (data.is_final) {
+            // Envía texto al background para traducir y reenviar al content
+            chrome.runtime.sendMessage({ type: 'ASR_TEXT', text });
+          }
         }
       } catch (err) {
-        chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: Respuesta inválida de Deepgram.' });
+        console.error('Error procesando respuesta Deepgram:', err);
+        chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error procesando respuesta de Deepgram.' });
       }
     };
 
-    // 3) Downsample a 16k y envía al WS
-    const downCtx = new OfflineAudioContext(1, 16000, 16000);
-
+    // 3) Procesa audio y envía al WS
     processor.onaudioprocess = (e) => {
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      
       const input = e.inputBuffer.getChannelData(0);
+      
       // Simple downsample a 16k: toma cada factor (3: 48k -> 16k)
       const factor = Math.floor(audioCtx.sampleRate / 16000);
       const out = new Int16Array(Math.floor(input.length / factor));
+      
       let j = 0;
       for (let i = 0; i < input.length; i += factor) {
-        let s = Math.max(-1, Math.min(1, input[i]));
-        out[j++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        let sample = Math.max(-1, Math.min(1, input[i]));
+        out[j++] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
       }
-      if (ws?.readyState === 1) ws.send(out.buffer);
+      
+      try {
+        ws.send(out.buffer);
+      } catch (wsError) {
+        console.error('Error enviando audio a WebSocket:', wsError);
+      }
     };
+
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'ASR Premium activado. Capturando audio...' });
 
   } catch (e) {
     chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: ' + e.message });
