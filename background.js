@@ -9,18 +9,32 @@ const STATE = {
 };
 
 async function ensureOffscreen() {
-  if (STATE.offscreenCreated) return;
-  const exists = await chrome.offscreen.hasDocument?.();
-  if (exists) {
-    STATE.offscreenCreated = true;
+  console.log('Verificando offscreen document...');
+  if (STATE.offscreenCreated) {
+    console.log('Offscreen document ya existe');
     return;
   }
-  await chrome.offscreen.createDocument({
-    url: 'offscreen/offscreen.html',
-    reasons: ['AUDIO_PLAYBACK', 'BLOBS'],
-    justification: 'Process tab audio & stream to ASR provider for live captions.'
-  });
-  STATE.offscreenCreated = true;
+  
+  try {
+    const exists = await chrome.offscreen.hasDocument?.();
+    console.log('Offscreen document exists:', exists);
+    if (exists) {
+      STATE.offscreenCreated = true;
+      return;
+    }
+    
+    console.log('Creando offscreen document...');
+    await chrome.offscreen.createDocument({
+      url: 'offscreen/offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Process tab audio & stream to ASR provider for live captions.'
+    });
+    STATE.offscreenCreated = true;
+    console.log('Offscreen document creado exitosamente');
+  } catch (error) {
+    console.error('Error creando offscreen document:', error);
+    throw error;
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -85,19 +99,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       if (mode === 'asr') {
-        await ensureOffscreen();
-        const licenseOk = await verifyLicense();
-        if (!licenseOk) {
-          try {
-            await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_NOTICE',
-              message: 'ASR Premium requiere licencia activa. Ve a Options.' });
-            await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'Licencia inválida o no activa.' });
-          } catch (e) {
-            console.warn('No se pudo enviar OVERLAY_NOTICE:', e);
+        console.log('Activando modo ASR Premium...');
+        try {
+          await ensureOffscreen();
+          console.log('Offscreen document preparado, verificando licencia...');
+          
+          const licenseOk = await verifyLicense();
+          if (!licenseOk) {
+            console.log('Licencia inválida');
+            try {
+              await chrome.tabs.sendMessage(tabId, { type: 'OVERLAY_NOTICE',
+                message: 'ASR Premium requiere licencia activa. Ve a Options.' });
+              await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: 'Licencia inválida o no activa.' });
+            } catch (e) {
+              console.warn('No se pudo enviar OVERLAY_NOTICE:', e);
+            }
+            return sendResponse({ ok: false, error: 'NO_LICENSE' });
           }
-          return sendResponse({ ok: false, error: 'NO_LICENSE' });
+          
+          console.log('Licencia válida, iniciando ASR...');
+          chrome.runtime.sendMessage({ type: 'ASR_START', tabId });
+        } catch (error) {
+          console.error('Error en modo ASR:', error);
+          try {
+            await chrome.tabs.sendMessage(tabId, { type: 'ASR_STATUS', status: `Error ASR: ${error.message}` });
+          } catch (e) {
+            console.warn('No se pudo enviar error ASR:', e);
+          }
+          return sendResponse({ ok: false, error: error.message });
         }
-        chrome.runtime.sendMessage({ type: 'ASR_START', tabId });
       }
       sendResponse({ ok: true });
     }
