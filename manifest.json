@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Subtítulos con Traducción (YT/Twitch/Kick)",
-  "description": "Traduce subtítulos en tiempo real. Gratis: YouTube captions ▶ Traducción. Premium: ASR en vivo de audio de pestaña.",
+  "name": "Subtitulos con Traduccion (YT/Twitch/Kick)",
+  "description": "Traduce subtitulos en tiempo real. Gratis: YouTube captions. Premium: ASR en vivo de audio de pestana.",
   "version": "0.1.0",
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Subtítulos con Traducción"
+    "default_title": "Subtitulos con Traduccion"
   },
   "icons": {
     "16": "assets/icon16.png",
@@ -13,8 +13,7 @@
     "128": "assets/icon128.png"
   },
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "permissions": [
     "storage", "scripting", "activeTab", "offscreen", "tabCapture"

@@ -1,12 +1,48 @@
-// background.js
-import { Translator } from './adapters/translatorAdapter.js';
+// background.js - Versión simplificada
+console.log('Background script iniciado');
 
 const STATE = {
-  enabledByTab: new Map(), // tabId -> { enabled: bool, mode: 'auto'|'asr' }
-  licenseInfo: null,
+  enabledByTab: new Map(),
   translator: null,
   offscreenCreated: false
 };
+
+// Clase Translator integrada
+class Translator {
+  constructor() { 
+    this.provider = null; 
+  }
+
+  async translate(text, targetLang) {
+    try {
+      const cfg = await chrome.storage.sync.get(['trProvider','ltEndpoint','ltKey']);
+      const provider = cfg.trProvider || 'libretranslate';
+      if (provider === 'libretranslate') {
+        return await this._libreTranslate(text, targetLang, cfg);
+      }
+      throw new Error('Proveedor de traducción no configurado');
+    } catch (error) {
+      console.error('Error en traducción:', error);
+      return text; // Devolver texto original si falla
+    }
+  }
+
+  async _libreTranslate(text, targetLang, cfg) {
+    const endpoint = cfg.ltEndpoint || 'https://libretranslate.com/translate';
+    const body = { q: text, source: 'auto', target: targetLang, format: 'text' };
+    if (cfg.ltKey) body.api_key = cfg.ltKey;
+    
+    const res = await fetch(endpoint, {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    
+    if (!res.ok) throw new Error('LibreTranslate error');
+    const json = await res.json();
+    return json?.translatedText || text;
+  }
+}
 
 async function ensureOffscreen() {
   if (STATE.offscreenCreated) return;
