@@ -10,18 +10,49 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 async function startAsr(tabId) {
   try {
+    console.log('Iniciando ASR para tabId:', tabId);
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Verificando configuración...' });
+    
     const cfg = await chrome.storage.sync.get(['asrProvider','deepgramKey']);
-    if (cfg.asrProvider !== 'deepgram' || !cfg.deepgramKey) {
-      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: Configura Deepgram en Opciones.' });
-      throw new Error('Configura Deepgram en Options.');
+    console.log('Configuración ASR obtenida:', { 
+      provider: cfg.asrProvider, 
+      hasKey: !!cfg.deepgramKey,
+      keyLength: cfg.deepgramKey?.length || 0 
+    });
+    
+    if (!cfg.asrProvider) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: No hay proveedor ASR configurado. Ve a Opciones.' });
+      throw new Error('No ASR provider configured');
+    }
+    
+    if (cfg.asrProvider !== 'deepgram') {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Error: Proveedor ${cfg.asrProvider} no soportado aún.` });
+      throw new Error(`Unsupported ASR provider: ${cfg.asrProvider}`);
+    }
+    
+    if (!cfg.deepgramKey || cfg.deepgramKey.trim().length === 0) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: API Key de Deepgram no configurada. Ve a Opciones.' });
+      throw new Error('Deepgram API key not configured');
+    }
+    
+    if (cfg.deepgramKey.length < 10) {
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: API Key de Deepgram parece inválida. Ve a Opciones.' });
+      throw new Error('Deepgram API key too short');
     }
 
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Configuración OK. Solicitando captura de audio...' });
+    console.log('Solicitando captura de audio para tabId:', tabId);
+    
     // 1) Captura audio de la pestaña activa
     mediaStream = await chrome.tabCapture.capture({ audio: true, video: false });
+    console.log('MediaStream obtenido:', mediaStream);
+    
     if (!mediaStream) {
-      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: No se pudo capturar audio de la pestaña.' });
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: No se pudo capturar audio de la pestaña.' });
       throw new Error('No se pudo capturar audio de la pestaña.');
     }
+
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Audio capturado. Configurando procesador...' });
 
     audioCtx = new AudioContext({ sampleRate: 48000 });
     sourceNode = audioCtx.createMediaStreamSource(mediaStream);
@@ -31,48 +62,112 @@ async function startAsr(tabId) {
     sourceNode.connect(processor);
     processor.connect(audioCtx.destination);
 
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Conectando a Deepgram...' });
+    
     // 2) Conecta WS ASR
-    ws = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language=auto');
+    const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&language=auto`;
+    console.log('Conectando a Deepgram con URL:', wsUrl);
+    
+    ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
+    
     ws.onopen = () => {
-      console.log('WS Deepgram conectado');
-      ws.send(JSON.stringify({ type: 'configure', access_token: cfg.deepgramKey }));
+      console.log('WS Deepgram conectado, enviando token de autorización...');
+      // Enviar el token como mensaje de configuración inicial
+      ws.send(JSON.stringify({
+        type: 'configure',
+        'access-token': cfg.deepgramKey
+      }));
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Conectado a Deepgram. Procesando audio...' });
     };
+    
     ws.onerror = (e) => {
-      chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: No se pudo conectar a Deepgram.' });
-      console.error('WS error', e);
+      console.error('WS Deepgram error:', e);
+      chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error: No se pudo conectar a Deepgram. Verifica tu API key.' });
     };
-    ws.onclose = () => console.log('WS cerrado');
+    
+    ws.onclose = (e) => {
+      console.log('WS Deepgram cerrado:', e.code, e.reason);
+      if (e.code !== 1000) {
+        chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Conexión cerrada: ${e.reason || 'Error desconocido'}` });
+      }
+    };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log('Deepgram response:', data);
+        
+        if (data.error) {
+          chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Error Deepgram: ${data.error}` });
+          return;
+        }
+        
         const alt = data.channel?.alternatives?.[0];
         const text = alt?.transcript?.trim();
-        if (text && data.is_final) {
-          // Envía texto al background para traducir y reenviar al content
-          chrome.runtime.sendMessage({ type: 'ASR_TEXT', text });
+        
+        if (text) {
+          console.log('Transcripción recibida:', text, 'Final:', data.is_final);
+          chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Transcribiendo: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"` });
+          
+          if (data.is_final) {
+            // Envía texto al background para traducir y reenviar al content
+            chrome.runtime.sendMessage({ type: 'ASR_TEXT', text });
+          }
         }
       } catch (err) {
-        chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: Respuesta inválida de Deepgram.' });
+        console.error('Error procesando respuesta Deepgram:', err);
+        chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'Error procesando respuesta de Deepgram.' });
       }
     };
 
-    // 3) Downsample a 16k y envía al WS
-    const downCtx = new OfflineAudioContext(1, 16000, 16000);
-
+    // 3) Procesa audio y envía al WS
+    let audioPacketsSent = 0;
     processor.onaudioprocess = (e) => {
+      if (ws?.readyState !== WebSocket.OPEN) {
+        if (audioPacketsSent % 100 === 0) {
+          console.log('WebSocket no está abierto, estado:', ws?.readyState);
+        }
+        return;
+      }
+      
       const input = e.inputBuffer.getChannelData(0);
+      
+      // Verificar si hay audio (nivel de volumen)
+      let sum = 0;
+      for (let i = 0; i < input.length; i++) {
+        sum += input[i] * input[i];
+      }
+      const rms = Math.sqrt(sum / input.length);
+      
       // Simple downsample a 16k: toma cada factor (3: 48k -> 16k)
       const factor = Math.floor(audioCtx.sampleRate / 16000);
       const out = new Int16Array(Math.floor(input.length / factor));
+      
       let j = 0;
       for (let i = 0; i < input.length; i += factor) {
-        let s = Math.max(-1, Math.min(1, input[i]));
-        out[j++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        let sample = Math.max(-1, Math.min(1, input[i]));
+        out[j++] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
       }
-      if (ws?.readyState === 1) ws.send(out.buffer);
+      
+      try {
+        ws.send(out.buffer);
+        audioPacketsSent++;
+        
+        // Log cada 100 paquetes para mostrar actividad
+        if (audioPacketsSent % 100 === 0) {
+          console.log(`Paquetes de audio enviados: ${audioPacketsSent}, RMS: ${rms.toFixed(4)}`);
+          if (rms > 0.001) {
+            chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: `Detectando audio... (${audioPacketsSent} paquetes)` });
+          }
+        }
+      } catch (wsError) {
+        console.error('Error enviando audio a WebSocket:', wsError);
+      }
     };
+
+    console.log('ASR configurado completamente');
+    chrome.runtime.sendMessage({ type: 'ASR_STATUS', status: 'ASR Premium activado. Capturando audio...' });
 
   } catch (e) {
     chrome.runtime.sendMessage({ type: 'OVERLAY_NOTICE', message: 'ASR error: ' + e.message });
